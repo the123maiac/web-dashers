@@ -72,6 +72,20 @@ const fs = 1000;
 const gs = 1001;
 
 const atlasList = ["GJ_WebSheet", "GJ_GameSheet", "GJ_GameSheet02", "GJ_GameSheet03", "GJ_GameSheet04", "GJ_GameSheetEditor", "GJ_GameSheetGlow", "GJ_GameSheetIcons", "GJ_LaunchSheet", "player_ball_00", "player_dart_00"];
+// Substitute frames for decorations missing from this (older) atlas set, so
+// newer levels' decor still renders instead of silently vanishing.
+window.__wdFrameAliasRules = [
+  [/^d_smallBall_(\d+)/, (m) => "d_ball_" + m[1] + "_001.png"],
+  [/^smallCoin(?:_\d+)?/i, () => "secretCoin_01_001.png"],
+];
+function resolveFrameAlias(frameName) {
+  if (!frameName) return null;
+  for (const rule of window.__wdFrameAliasRules) {
+    const m = frameName.match(rule[0]);
+    if (m) return rule[1](m);
+  }
+  return null;
+}
 function getAtlasFrame(scene, frameName) {
   if (frameName.startsWith("player_")) {
     const playerAtlasPriority = ["GJ_GameSheet03", "GJ_GameSheet", "GJ_GameSheet02", "GJ_GameSheet04", "GJ_GameSheetEditor", "GJ_GameSheetGlow", "GJ_GameSheetIcons", "GJ_WebSheet", "GJ_LaunchSheet", "player_ball_00", "player_dart_00"];
@@ -95,6 +109,10 @@ function getAtlasFrame(scene, frameName) {
         };
       }
     }
+  }
+  const aliasFrame = resolveFrameAlias(frameName);
+  if (aliasFrame && aliasFrame !== frameName) {
+    return getAtlasFrame(scene, aliasFrame);
   }
   return null;
 }

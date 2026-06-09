@@ -58,9 +58,9 @@ const phaserConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH
   },
-  scene: [BootScene, GameScene]
+  scene: [BootScene, GameScene, EditorScene]
 };
-new Phaser.Game(phaserConfig);
+window.__WD_GAME = new Phaser.Game(phaserConfig);
 
 window.clearGameCache = () => {
   if (window.gameCache) {

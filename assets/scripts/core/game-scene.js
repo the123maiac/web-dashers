@@ -286,6 +286,16 @@ class GameScene extends Phaser.Scene {
     });
   }
   create() {
+    // Returning from a playtest launched by the editor -> jump back to the editor.
+    if (!this.game.registry.get("autoStartGame") && this.game.registry.get("editorReturnId")) {
+      const rid = this.game.registry.get("editorReturnId");
+      this.game.registry.remove("editorReturnId");
+      try {
+        const raw = localStorage.getItem("created_levels");
+        const lvl = (raw ? JSON.parse(raw) : []).find((l) => l.createdId === rid);
+        if (lvl) { window.isEditor = false; this.scene.start("EditorScene", { level: lvl }); return; }
+      } catch (e) { /* fall through to normal menu */ }
+    }
     this._bgSpeedX = 0.1;
     this._bgSpeedY = 0.1;
     this._menuCameraX = -centerX;
@@ -1104,7 +1114,7 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
 
         const btnY = sh * 0.58;
         const editBtn = this.add.image(centerX - 220, btnY, "GJ_GameSheet03", "GJ_editBtn_001.png").setInteractive().setFlipY(true).setAngle(90).setScale(1.1);
-        this._makeBouncyButton(editBtn, 1.1, () => { cleanup(); this._startCreatedLevel(level, true); });
+        this._makeBouncyButton(editBtn, 1.1, () => { cleanup(); window.isEditor = false; this.scene.start("EditorScene", { level }); });
         const playBtn = this.add.image(centerX, btnY, "GJ_GameSheet03", "GJ_playBtn2_001.png").setInteractive().setFlipY(true).setAngle(90).setScale(1.1);
         this._makeBouncyButton(playBtn, 1.1, () => { cleanup(); this._startCreatedLevel(level, false); });
         const shareBtn = this.add.image(centerX + 220, btnY, "GJ_GameSheet03", "GJ_shareBtn_001.png").setInteractive().setFlipY(true).setAngle(90).setScale(1.1);
@@ -1423,14 +1433,15 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       let _loading = false;
       const _doSearch = async () => {
         if (_loading) return;
-        const levelId = htmlInput.value.trim().replace(/\D/g, "");
-        if (!levelId) return;
-        _loading = true;
-        try {
-          await _doSearchInner(levelId);
-        } catch (err) {
-        } finally {
-          _loading = false;
+        const raw = htmlInput.value.trim();
+        if (!raw) return;
+        if (/^\d+$/.test(raw)) {
+          // Pure number -> treat as a level ID and play it directly.
+          _loading = true;
+          try { await _doSearchInner(raw); } catch (err) {} finally { _loading = false; }
+        } else {
+          // Text -> open the online browser filtered by this search term.
+          this._closeSearchMenu(true, () => this._openOnlineLevelsScene({ type: 0, str: raw }));
         }
       };
       const _doSearchInner = async (levelId) => {
@@ -8448,6 +8459,7 @@ _applyMirrorEffect() {
     const _panelMask = _panelMaskShape.createGeometryMask();
     objects.push(_panelMaskShape);
 
+    const _lengthNames = ["Tiny", "Short", "Medium", "Long", "XL", "Plat"];
     const _buildLevelCell = (levelData, rowIdx) => {
       const rowH = 180;
       const rowY = _panelBoundaryTop + rowIdx * rowH - scrollOffsetY;
@@ -8455,12 +8467,34 @@ _applyMirrorEffect() {
       const rx = listLeft;
       const boundaryTop = _panelBoundaryTop;
       const boundaryBottom = _panelBoundaryBottom;
+      // Skip rows entirely outside the visible panel.
+      if (rowY + rowH < boundaryTop || rowY > boundaryBottom) return cellObjs;
+      const cy = rowY + rowH / 2;
       if (rowIdx > 0 && rowY >= boundaryTop && rowY <= boundaryBottom) {
         const div = this.add.rectangle(rx + panelW / 2, rowY, panelW - 10, 1.5, 0x000000, 0.6)
           .setScrollFactor(0).setDepth(203).setOrigin(0.5, 0.5);
         cellObjs.push(div);
       }
-
+      const nameTxt = this.add.bitmapText(rx + 28, cy - 42, "bigFont", String(levelData.name).slice(0, 28), 34)
+        .setScrollFactor(0).setDepth(204).setOrigin(0, 0.5);
+      const authTxt = this.add.bitmapText(rx + 28, cy - 2, "goldFont", "By " + String(levelData.author).slice(0, 24), 24)
+        .setScrollFactor(0).setDepth(204).setOrigin(0, 0.5);
+      const statTxt = this.add.bitmapText(rx + 28, cy + 38, "bigFont",
+        `Downloads ${levelData.downloads}   Likes ${levelData.likes}   ${_lengthNames[levelData.length] || ""}`, 20)
+        .setScrollFactor(0).setDepth(204).setOrigin(0, 0.5).setTint(0xbfe0ff);
+      const playBtn = this.add.image(rx + panelW - 72, cy, "GJ_GameSheet03", "GJ_playBtn2_001.png")
+        .setScrollFactor(0).setDepth(204).setScale(0.6);
+      [nameTxt, authTxt, statTxt, playBtn].forEach((o) => { o.setMask(_panelMask); cellObjs.push(o); });
+      const zTop = Math.max(rowY, boundaryTop);
+      const zH = Math.min(rowY + rowH, boundaryBottom) - zTop;
+      if (zH > 12) {
+        const hit = this.add.zone(rx, zTop, panelW, zH).setOrigin(0, 0).setScrollFactor(0).setDepth(205).setInteractive({ useHandCursor: true });
+        let downY = 0, moved = false;
+        hit.on("pointerdown", (p) => { downY = p.y; moved = false; });
+        hit.on("pointermove", (p) => { if (p.isDown && Math.abs(p.y - downY) > 8) moved = true; });
+        hit.on("pointerup", () => { if (!moved && levelData.id) this._playOnlineLevelById(levelData.id, levelData.name); });
+        cellObjs.push(hit);
+      }
       return cellObjs;
     };
     const _parseKV = (str) => {
@@ -8502,7 +8536,7 @@ _applyMirrorEffect() {
           const maxRetries = 3;
           let res;
           while (retryCount < maxRetries) {
-            res = await fetch(`${PROXY}/getGJLevels21.php`, {
+            res = await fetch(`${PROXY}/getGJLevels21.php?_=${Date.now()}`, {
               method: "POST",
               headers: { "Content-Type": "application/x-www-form-urlencoded" },
               body
@@ -8732,6 +8766,42 @@ _applyMirrorEffect() {
         this._closeOnlineLevelsOverlay();
       }
       this._onlineLevelsOverlay = null;
+    }
+  }
+
+  // Download a level from the GD servers by id and hand it to the play engine
+  // through the same path the editor playtest uses (handles official + custom songs).
+  async _playOnlineLevelById(id, name) {
+    const PROXY = (window._gdProxyUrl || "").replace(/\/$/, "");
+    if (!PROXY || !id) return;
+    const sw = screenWidth, sh = screenHeight;
+    const loadBg = this.add.graphics().setScrollFactor(0).setDepth(5000);
+    loadBg.fillStyle(0x000000, 0.72).fillRect(0, 0, sw, sh);
+    const loadTxt = this.add.bitmapText(sw / 2, sh / 2, "bigFont", "Loading level...", 34)
+      .setOrigin(0.5).setScrollFactor(0).setDepth(5001);
+    try {
+      const res = await fetch(`${PROXY}/downloadGJLevel22.php`, {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `levelID=${id}&secret=Wmfd2893gb7`
+      });
+      const text = res.ok ? await res.text() : "-1";
+      if (!text || text === "-1" || !text.includes(":")) throw new Error("level not found");
+      const seg = text.split("#")[0].split(":"), m = {};
+      for (let i = 0; i + 1 < seg.length; i += 2) m[seg[i]] = seg[i + 1];
+      const levelString = m["4"];
+      if (!levelString) throw new Error("no level data");
+      let off = parseInt(m["12"] || "0");
+      if (isNaN(off) || off < 0 || off >= window.allLevels.length) off = 0;
+      const custom = parseInt(m["35"] || "0");
+      const songId = custom > 0 ? custom : -(off + 1);
+      const level = { levelName: (m["2"] || name || "Online Level"), levelString, createdId: "online_" + id, songId, song: name || "" };
+      if (this._closeOnlineLevelsScene) this._closeOnlineLevelsScene();
+      if (this._searchOverlay && this._closeSearchMenu) this._closeSearchMenu(true);
+      await this._startCreatedLevel(level, false);
+    } catch (e) {
+      console.warn("[online] play failed:", e);
+      loadTxt.setText("Level unavailable");
+      this.time.delayedCall(900, () => { loadBg.destroy(); loadTxt.destroy(); });
     }
   }
 

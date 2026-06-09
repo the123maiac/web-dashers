@@ -74,7 +74,7 @@ function parseLevel(levelString) {
         lessCluttered += "=";
       }
       return lessCluttered;
-    }(compressedString.trim());
+    }(compressedString.trim().replace(/[^A-Za-z0-9+\/=_-]/g, ""));
     let decryptedString = atob(getBase64);
     let rawBytes = new Uint8Array(decryptedString.length);
     for (let byteStr = 0; byteStr < decryptedString.length; byteStr++) {
@@ -412,6 +412,32 @@ window.LevelObject = class LevelObject {
     if (!this._initialColors[1001] && settingsMap["kS30"]) {
       let col = parseColorEntry(settingsMap["kS30"]);
       if (col) this._initialColors[1001] = col;
+    }
+    // Stuck-black backdrop fix: some modern levels (Dash, Sunshine, ...) ship a
+    // pure-black background/ground channel and rely on the full 2.0/2.2 spawn
+    // /group trigger cascade (not implemented here) to colour the scene. Without
+    // it the screen is solid black. Derive a level-appropriate backdrop from the
+    // object colour channels so the level is readable instead of pure black.
+    const _isBlack = (c) => c && (c.r + c.g + c.b) <= 45;
+    if (_isBlack(this._initialColors[1000]) || _isBlack(this._initialColors[1001])) {
+      let sr = 0, sg = 0, sb = 0, n = 0;
+      for (const id in this._initialColors) {
+        const idn = parseInt(id, 10);
+        if (idn >= 1000) continue; // skip special channels (bg/ground/glow/...)
+        const c = this._initialColors[id];
+        const bright = c.r + c.g + c.b;
+        if (bright > 90 && bright < 690) { sr += c.r; sg += c.g; sb += c.b; n++; }
+      }
+      // Only derive a backdrop when the level actually has colourful channels
+      // (a "should be colourful but stuck black" level like Dash/Sunshine).
+      // Genuinely dark/monochrome levels (Bloodbath, The Dark Star, ...) have no
+      // mid-brightness channels, so leave their intentional black backgrounds.
+      if (n > 0) {
+        const base = { r: sr / n, g: sg / n, b: sb / n };
+        const scale = (c, k) => ({ r: Math.round(c.r * k), g: Math.round(c.g * k), b: Math.round(c.b * k) });
+        if (_isBlack(this._initialColors[1000])) this._initialColors[1000] = scale(base, 0.55);
+        if (_isBlack(this._initialColors[1001])) this._initialColors[1001] = scale(base, 0.40);
+      }
     }
   }
   _buildGround() {
@@ -756,6 +782,39 @@ window.LevelObject = class LevelObject {
       }
     }
   }
+  _ensureFallbackTexture(scene) {
+    if (scene.textures.exists("__wd_fallback")) return;
+    const g = scene.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(0, 0, 30, 30);
+    g.generateTexture("__wd_fallback", 30, 30);
+    g.destroy();
+  }
+  // Renders a placeholder when an object's real sprite frame can't be resolved,
+  // so nothing is ever silently invisible. In normal play we only fall back for
+  // gameplay-critical solids/hazards (decor that's missing stays hidden rather
+  // than cluttering verified levels); in the editor we show everything visible.
+  _makeFallbackSprite(scene, x, y, frameName, objectDef) {
+    const type = objectDef && objectDef.type;
+    const editor = !!window.isEditor;
+    if (type === triggerType) return null;
+    const critical = (type === solidType || type === hazardType);
+    if (!critical && !editor) return null;
+    this._ensureFallbackTexture(scene);
+    const spr = scene.add.image(x, y, "__wd_fallback");
+    const gw = (objectDef && objectDef.gridW) || 1;
+    const gh = (objectDef && objectDef.gridH) || 1;
+    spr.setDisplaySize(Math.max(8, gw * 30), Math.max(8, gh * 30));
+    let tint = 0x9aa0a6, alpha = 1;
+    if (type === hazardType) { tint = 0xff3b3b; }
+    else if (type === solidType) { tint = 0x6e6e6e; }
+    else { tint = 0xffffff; alpha = editor ? 0.5 : 0.3; }
+    spr.setTint(tint);
+    spr.setAlpha(alpha);
+    spr.setData("gjBaseRotationDeg", 0);
+    spr._wdFallback = true;
+    return spr;
+  }
   _getGlowFrameName(frameName) {
     if (frameName && frameName.endsWith("_001.png")) {
       return frameName.replace("_001.png", "_glow_001.png");
@@ -1014,7 +1073,10 @@ window.LevelObject = class LevelObject {
     }
 
     const visualDef = isPortalFront ? { ...objectDef, _portalFront: true } : objectDef;
-    const sprite = addImageToScene(scene, spriteWorldX, baseY, frameName);
+    let sprite = addImageToScene(scene, spriteWorldX, baseY, frameName);
+    if (!sprite) {
+      sprite = this._makeFallbackSprite(scene, spriteWorldX, baseY, frameName, objectDef);
+    }
 
     if (sprite) {
       this._applyVisualProps(scene, sprite, frameName, levelObj, objectDef);
