@@ -1,0 +1,14 @@
+# Render Blueprint — static site (no build step; serves the repo as-is).
+# Deploy: render.com -> New -> Blueprint -> connect this repo, OR
+#         New -> Static Site -> connect repo, Build Command: (empty), Publish Directory: .
+services:
+  - type: web
+    name: web-dashers
+    runtime: static
+    buildCommand: "true"
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: Access-Control-Allow-Origin
+        value: "*"
