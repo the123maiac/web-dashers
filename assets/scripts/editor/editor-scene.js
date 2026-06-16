@@ -283,7 +283,7 @@ class EditorScene extends Phaser.Scene {
   /* --- palette ----------------------------------------------------------- */
   _buildPaletteData() {
     const ao = this._ao;
-    const cats = { Block: [], Spike: [], Slope: [], Portal: [], Orbs: [], Deco: [] };
+    const cats = { Block: [], Spike: [], Slope: [], Portal: [], Orbs: [], Deco: [], "2.2": [] };
     for (const idStr of Object.keys(ao)) {
       const id = +idStr, d = ao[idStr];
       if (!d || !d.frame) continue;
@@ -294,6 +294,7 @@ class EditorScene extends Phaser.Scene {
       else if (t === "portal" || t === "speed") cats.Portal.push(id);
       else if (t === "pad" || t === "ring") cats.Orbs.push(id);
       else if (t === "deco") cats.Deco.push(id);
+      if (id >= 1000) cats["2.2"].push(id); // 2.2-era art (any type)
     }
     for (const k of Object.keys(cats)) cats[k].sort((a, b) => a - b);
     // Common, hand-picked first entries so the palette opens on useful objects.
@@ -320,6 +321,14 @@ class EditorScene extends Phaser.Scene {
       this._tabBtns[cat] = b; tx += w + 6;
     }
 
+    // Pagination + find-by-id controls (right side of the tab row).
+    this._palettePage = 0;
+    this._prevPageBtn = this._uiButton(screenWidth - 272, panelTop + 6, 46, "Prev", () => this._changePage(-1), { h: 26, size: 13 });
+    this._pageLbl = this.add.bitmapText(screenWidth - 220, panelTop + 19, "goldFont", "1/1", 14).setOrigin(0.5);
+    this.uiLayer.add(this._pageLbl);
+    this._nextPageBtn = this._uiButton(screenWidth - 200, panelTop + 6, 46, "Next", () => this._changePage(1), { h: 26, size: 13 });
+    this._uiButton(screenWidth - 146, panelTop + 6, 66, "Find ID", () => this._promptFindId(), { h: 26, size: 13, color: 0x2c7be5 });
+
     // Scrollable thumbnail strip.
     this._stripTop = panelTop + 40;
     this._stripH = 70;
@@ -334,15 +343,22 @@ class EditorScene extends Phaser.Scene {
   }
 
   _selectCategory(cat) {
+    if (cat !== this.paletteCategory) this._palettePage = 0;
     this.paletteCategory = cat;
     for (const k of Object.keys(this._tabBtns)) this._tabBtns[k].setActive(k === cat);
     this._stripContainer.removeAll(true);
+    this._stripContainer.x = 0;
     this._stripScroll = 0;
-    const ids = this.paletteCats[cat] || [];
+    const allIds = this.paletteCats[cat] || [];
+    const PAGE = 80;
+    this._paletteTotalPages = Math.max(1, Math.ceil(allIds.length / PAGE));
+    this._palettePage = Phaser.Math.Clamp(this._palettePage || 0, 0, this._paletteTotalPages - 1);
+    const ids = allIds.slice(this._palettePage * PAGE, (this._palettePage + 1) * PAGE);
+    this._updatePageLabel();
     const cell = 60, pad = 8;
     let x = pad;
     this._thumbCells = [];
-    const maxItems = Math.min(ids.length, 240);
+    const maxItems = ids.length;
     for (let i = 0; i < maxItems; i++) {
       const id = ids[i];
       const def = this._ao[id];
@@ -391,6 +407,20 @@ class EditorScene extends Phaser.Scene {
     const maxScroll = Math.max(0, this._stripContentW - screenWidth + 10);
     this._stripScroll = Phaser.Math.Clamp(this._stripScroll - dx, -maxScroll, 0);
     this._stripContainer.x = this._stripScroll;
+  }
+  _changePage(d) {
+    this._palettePage = Phaser.Math.Clamp((this._palettePage || 0) + d, 0, (this._paletteTotalPages || 1) - 1);
+    this._selectCategory(this.paletteCategory);
+  }
+  _updatePageLabel() {
+    if (this._pageLbl) this._pageLbl.setText(((this._palettePage || 0) + 1) + "/" + (this._paletteTotalPages || 1));
+  }
+  _promptFindId() {
+    const v = window.prompt("Place object by ID (1-4539):", String(this.currentPlaceId || 1));
+    if (v == null) return;
+    const id = parseInt(v, 10);
+    if (!isNaN(id) && this._ao[id]) this._selectPaletteItem(id);
+    else this._toast("No object #" + v);
   }
 
   /* --- input ------------------------------------------------------------- */

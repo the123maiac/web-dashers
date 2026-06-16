@@ -2851,6 +2851,25 @@ this._menuUpdateLogBtn = this.add.image(screenWidth - 30 - 50, 33, "GJ_WebSheet"
       }
     });
     const infoBtn = this.add.image(sw - 40, 40, "GJ_GameSheet03", "GJ_infoIcon_001.png").setScrollFactor(0).setDepth(154).setRotation(Math.PI / 2).setInteractive();
+    // "Edit" -> open the current main level in the editor as a remixable copy.
+    const editBtn = this.add.image(sw - 112, 42, "GJ_GameSheet03", "GJ_editBtn_001.png").setScrollFactor(0).setDepth(154).setScale(0.8).setInteractive();
+    this._makeBouncyButton(editBtn, 0.8, async () => {
+      const lvl = window.currentlevel;
+      const fileNum = lvl[2].split("_")[1];
+      const idx = (window.allLevels || []).findIndex(l => l[2] === lvl[2]);
+      const editLoadTxt = this.add.bitmapText(cx, cy, "goldFont", "Opening in editor...", 22).setOrigin(0.5).setScrollFactor(0).setDepth(300);
+      try {
+        const txt = (await (await fetch("assets/levels/" + fileNum + ".txt")).text()).trim();
+        const level = { levelName: lvl[1] + " (edit)", levelString: txt, createdId: "main_" + lvl[2] + "_" + Date.now(), songId: -(Math.max(0, idx) + 1), song: lvl[1], levelId: "NA", levelLength: 0, description: "Remix of " + lvl[1], version: 1, status: "Unverified", normalBest: 0, practiceBest: 0 };
+        const raw = localStorage.getItem("created_levels");
+        const levels = raw ? JSON.parse(raw) : [];
+        levels.push(level);
+        localStorage.setItem("created_levels", JSON.stringify(levels));
+        this._closeLevelSelect && this._closeLevelSelect(true);
+        window.isEditor = false;
+        this.scene.start("EditorScene", { level });
+      } catch (e) { editLoadTxt.setText("Couldn't open level"); this.time.delayedCall(1000, () => editLoadTxt.destroy()); }
+    });
     const arrowL = this.add.image(55, cy - 25, "GJ_GameSheet03", "navArrowBtn_001.png").setScrollFactor(0).setDepth(154).setScale(1.1).setFlipX(true).setInteractive();
     const arrowR = this.add.image(sw - 55, cy - 25, "GJ_GameSheet03", "navArrowBtn_001.png").setScrollFactor(0).setDepth(154).setScale(1.1).setFlipX(false).setInteractive();
     const allLevels = window.allLevels || [];
