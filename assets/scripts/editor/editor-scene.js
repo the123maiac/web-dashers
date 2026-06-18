@@ -29,6 +29,9 @@ const ED_TRIGGERS = {
   1346: { name: "Rotate", color: 0xff9b3d, defs: { 51: 1, 68: 180, 10: 0.6, 30: 0, 85: 2 } },
   1049: { name: "Toggle", color: 0xe8c33a, defs: { 51: 1, 56: 0 } },
   1520: { name: "Shake",  color: 0xff6b4a, defs: { 75: 15, 10: 0.5 } },
+  1268: { name: "Spawn",  color: 0x5ad1ff, defs: { 51: 1, 63: 0.5 } },
+  2067: { name: "Scale",  color: 0xb084ff, defs: { 51: 1, 150: 1.5, 10: 0.5 } },
+  1913: { name: "Zoom",   color: 0x84ffd1, defs: { 150: 1.4, 10: 0.6 } },
 };
 
 class EditorScene extends Phaser.Scene {
@@ -297,9 +300,9 @@ class EditorScene extends Phaser.Scene {
     this._redoBtn = this._uiButton(screenWidth - 196, by, 84, "Redo", () => this._redo());
     this._delSelBtn = this._uiButton(screenWidth - 102, by, 92, "Del Sel", () => this._deleteSelection());
     this._uiButton(296, by, 84, "Anim", () => {
-      const k = window.prompt("Add an animated gadget:\n  1 = Spinner    2 = Slider    3 = Riser    4 = Pulser\n  5 = Fader    6 = Oscillator (loops)    7 = Vanisher", "1");
+      const k = window.prompt("Add an animated gadget:\n  1 = Spinner   2 = Slider   3 = Riser   4 = Pulser   5 = Fader\n  6 = Oscillator   7 = Vanisher   8 = Burst (spawn)   9 = Pump (scale)", "1");
       if (k === null) return;
-      this._addPreset(({ 1: "spinner", 2: "slider", 3: "riser", 4: "pulser", 5: "fader", 6: "oscillator", 7: "vanisher" })[parseInt(k, 10)] || "spinner");
+      this._addPreset(({ 1: "spinner", 2: "slider", 3: "riser", 4: "pulser", 5: "fader", 6: "oscillator", 7: "vanisher", 8: "burst", 9: "pump" })[parseInt(k, 10)] || "spinner");
     }, { color: 0x6f42c1 });
     this._uiButton(388, by, 84, "Group", () => this._setGroupOnSelection(), { color: 0x2c7be5 });
     this._uiButton(480, by, 84, "Cfg FX", () => this._configSelectedTrigger(), { color: 0x2c7be5 });
@@ -660,6 +663,9 @@ class EditorScene extends Phaser.Scene {
     else if (o.id === 899) { s = window.prompt("Color - channel, R, G, B:", [r[23] || 1, r[7] || 255, r[8] || 90, r[9] || 60].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[23] = parseInt(p[0]) || 1; r[7] = parseInt(p[1]) || 0; r[8] = parseInt(p[2]) || 0; r[9] = parseInt(p[3]) || 0; }
     else if (o.id === 1049) { s = window.prompt("Toggle - group, show 1 / hide 0:", [r[51] || 1, (r[56] === "1" || r[56] === 1) ? 1 : 0].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[56] = parseInt(p[1]) ? "1" : "0"; }
     else if (o.id === 1520) { s = window.prompt("Shake - strength, seconds:", [r[75] || 15, r[10] || 0.5].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[75] = parseFloat(p[0]) || 10; r[10] = parseFloat(p[1]) || 0.5; }
+    else if (o.id === 1268) { s = window.prompt("Spawn - target group, delay seconds:", [r[51] || 1, r[63] || 0.5].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[63] = parseFloat(p[1]) || 0; }
+    else if (o.id === 2067) { s = window.prompt("Scale - group, scale (1 = normal), seconds:", [r[51] || 1, r[150] || 1.5, r[10] || 0.5].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[150] = parseFloat(p[1]) || 1; r[10] = parseFloat(p[2]) || 0.5; }
+    else if (o.id === 1913) { s = window.prompt("Zoom - factor (1 = normal), seconds:", [r[150] || 1.4, r[10] || 0.6].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[150] = parseFloat(p[0]) || 1; r[10] = parseFloat(p[1]) || 0.6; }
     this._renderObject(o);
     this._toast(t.name + " trigger updated");
   }
@@ -691,6 +697,8 @@ class EditorScene extends Phaser.Scene {
     else if (kind === "fader") { add(1, 0, 0, { 57: G }); add(1007, -90, 0, { 51: G, 10: 1, 35: 0.15 }); }
     else if (kind === "oscillator") { for (let i = 0; i < 3; i++) add(1, i * 30, 0, { 57: G }); add(901, -90, 0, { 51: G, 28: 120, 29: 0, 10: 1.2, 30: 0, 85: 2, 97: 1 }); }
     else if (kind === "vanisher") { for (let i = 0; i < 3; i++) add(1, i * 30, 0, { 57: G }); add(1049, -90, 0, { 51: G, 56: 0 }); }
+    else if (kind === "burst") { const S = G + 4; const dirs = [[120, 0], [-120, 0], [0, 120], [0, -120]]; for (let i = 0; i < 4; i++) { const gg = G + i; add(1, 0, 0, { 57: gg }); add(901, -90, 0, { 51: gg, 28: dirs[i][0], 29: dirs[i][1], 10: 0.6, 30: 0, 85: 2, 57: S, 62: 1 }); } add(1268, -120, 0, { 51: S, 63: 0.3 }); }
+    else if (kind === "pump") { add(1, 0, 0, { 57: G }); add(2067, -90, 0, { 51: G, 150: 1.8, 10: 0.5 }); }
     if (!made.length) return;
     this._commit({ type: "add", objs: made });
     this._refreshCounter();

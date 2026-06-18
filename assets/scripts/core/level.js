@@ -318,6 +318,17 @@ window.LevelObject = class LevelObject {
     this._toggleTriggerIdx = 0;
     this._shakeTriggers = [];
     this._shakeTriggerIdx = 0;
+    this._spawnTriggers = [];
+    this._spawnTriggerIdx = 0;
+    this._spawnGroups = {};
+    this._pendingSpawns = [];
+    this._scaleTriggers = [];
+    this._scaleTriggerIdx = 0;
+    this._activeScaleTweens = [];
+    this._groupScale = {};
+    this._zoomTriggers = [];
+    this._zoomTriggerIdx = 0;
+    this._activeZoomTweens = [];
     this._colorChannelSprites = {};
     this._groupSprites = {};
     this._groupOffsets = {};
@@ -899,7 +910,9 @@ window.LevelObject = class LevelObject {
         offsetY: parseFloat(_raw[29] ?? 0) * 2,
         lockX: _raw[58] === "1",
         lockY: _raw[59] === "1",
-        loop: _raw[97] === "1"
+        loop: _raw[97] === "1",
+        groupId: parseInt(_raw[57] ?? 0, 10),
+        spawnTriggered: _raw[62] === "1"
       });
     }
 
@@ -944,7 +957,9 @@ window.LevelObject = class LevelObject {
         lockRotation: _raw[70] === "1",
         times360: parseInt(_raw[69] ?? 0, 10),
         centerGroup: parseInt(_raw[71] ?? 0, 10),
-        loop: _raw[97] === "1"
+        loop: _raw[97] === "1",
+        groupId: parseInt(_raw[57] ?? 0, 10),
+        spawnTriggered: _raw[62] === "1"
       });
     }
 
@@ -972,7 +987,9 @@ window.LevelObject = class LevelObject {
       this._toggleTriggers.push({
         x: levelObj.x * 2,
         targetGroup: parseInt(_raw[51] ?? 0, 10),
-        activate: _raw[56] === "1" || _raw[56] === 1
+        activate: _raw[56] === "1" || _raw[56] === 1,
+        groupId: parseInt(_raw[57] ?? 0, 10),
+        spawnTriggered: _raw[62] === "1"
       });
     }
 
@@ -981,6 +998,38 @@ window.LevelObject = class LevelObject {
       this._shakeTriggers.push({
         x: levelObj.x * 2,
         strength: parseFloat(_raw[75] ?? 10),
+        duration: parseFloat(_raw[10] ?? 0.5),
+        groupId: parseInt(_raw[57] ?? 0, 10),
+        spawnTriggered: _raw[62] === "1"
+      });
+    }
+
+    if (levelObj.id === 1268) {
+      const _raw = levelObj._raw;
+      this._spawnTriggers.push({
+        x: levelObj.x * 2,
+        targetGroup: parseInt(_raw[51] ?? 0, 10),
+        delay: parseFloat(_raw[63] ?? 0),
+        groupId: parseInt(_raw[57] ?? 0, 10),
+        spawnTriggered: _raw[62] === "1"
+      });
+    }
+
+    if (levelObj.id === 2067) {
+      const _raw = levelObj._raw;
+      this._scaleTriggers.push({
+        x: levelObj.x * 2,
+        targetGroup: parseInt(_raw[51] ?? 0, 10),
+        scale: parseFloat(_raw[150] ?? 1),
+        duration: parseFloat(_raw[10] ?? 0.5)
+      });
+    }
+
+    if (levelObj.id === 1913) {
+      const _raw = levelObj._raw;
+      this._zoomTriggers.push({
+        x: levelObj.x * 2,
+        zoom: parseFloat(_raw[150] ?? 1),
         duration: parseFloat(_raw[10] ?? 0.5)
       });
     }
@@ -1534,6 +1583,25 @@ window.LevelObject = class LevelObject {
     this._pulseTriggers.sort((a, b) => a.x - b.x);
     this._toggleTriggers.sort((a, b) => a.x - b.x);
     this._shakeTriggers.sort((a, b) => a.x - b.x);
+    this._spawnTriggers.sort((a, b) => a.x - b.x);
+    this._scaleTriggers.sort((a, b) => a.x - b.x);
+    this._zoomTriggers.sort((a, b) => a.x - b.x);
+    // Register group-tagged triggers so Spawn can fire them, then drop the
+    // spawn-only ones from the x-position lists (they wait to be spawned).
+    this._spawnGroups = {};
+    const _regSpawn = (arr, kind) => {
+      for (const t of arr) { t.kind = kind; if (t.groupId > 0) (this._spawnGroups[t.groupId] = this._spawnGroups[t.groupId] || []).push(t); }
+    };
+    _regSpawn(this._moveTriggers, "move");
+    _regSpawn(this._rotateTriggers, "rotate");
+    _regSpawn(this._toggleTriggers, "toggle");
+    _regSpawn(this._shakeTriggers, "shake");
+    _regSpawn(this._spawnTriggers, "spawn");
+    this._moveTriggers = this._moveTriggers.filter((t) => !t.spawnTriggered);
+    this._rotateTriggers = this._rotateTriggers.filter((t) => !t.spawnTriggered);
+    this._toggleTriggers = this._toggleTriggers.filter((t) => !t.spawnTriggered);
+    this._shakeTriggers = this._shakeTriggers.filter((t) => !t.spawnTriggered);
+    this._spawnTriggers = this._spawnTriggers.filter((t) => !t.spawnTriggered);
 
     for (let si = 0; si < this._sectionContainers.length; si++) {
       const sc = this._sectionContainers[si];
@@ -1790,7 +1858,9 @@ window.LevelObject = class LevelObject {
       const _0x2171db = this._collisionSections[_0xe2cbfa];
       if (_0x2171db) {
         for (let _0x5cdca9 = 0; _0x5cdca9 < _0x2171db.length; _0x5cdca9++) {
-          _0x28a7c0.push(_0x2171db[_0x5cdca9]);
+          const _c = _0x2171db[_0x5cdca9];
+          if (_c && _c._toggledOff) continue;
+          _0x28a7c0.push(_c);
         }
       }
     }
@@ -1891,6 +1961,14 @@ window.LevelObject = class LevelObject {
     this._groupOffsets = {};
     this._toggleTriggerIdx = 0;
     this._shakeTriggerIdx = 0;
+    this._spawnTriggerIdx = 0;
+    this._pendingSpawns = [];
+    this._scaleTriggerIdx = 0;
+    this._activeScaleTweens = [];
+    this._groupScale = {};
+    this._zoomTriggerIdx = 0;
+    this._activeZoomTweens = [];
+    { const cam = this._scene && this._scene.cameras && this._scene.cameras.main; if (cam) cam.setZoom(1); }
     for (const gid in this._groupSprites) {
       for (const spr of this._groupSprites[gid]) {
         if (!spr || !spr.active) continue;
@@ -1899,6 +1977,7 @@ window.LevelObject = class LevelObject {
         spr._eeWorldX = spr._origWorldX;
         spr._eeBaseY = spr._origBaseY;
         spr.visible = true;
+        if (spr._scaleBaseX !== undefined) { spr.scaleX = spr._scaleBaseX; spr.scaleY = spr._scaleBaseY; }
       }
     }
     for (const gid in this._groupColliders) {
@@ -1907,6 +1986,7 @@ window.LevelObject = class LevelObject {
         col.y = col._origBaseY;
         col._baseX = col._origBaseX;
         col._baseY = col._origBaseY;
+        col._toggledOff = false;
       }
     }
   }
@@ -2056,6 +2136,8 @@ window.LevelObject = class LevelObject {
       if (trig.x > playerX) break;
       const sprites = this._groupSprites[trig.targetGroup];
       if (sprites) for (const spr of sprites) { if (spr) spr.visible = trig.activate; }
+      const cols = this._groupColliders[trig.targetGroup];
+      if (cols) for (const col of cols) { if (col) col._toggledOff = !trig.activate; }
       this._toggleTriggerIdx++;
     }
   }
@@ -2068,6 +2150,116 @@ window.LevelObject = class LevelObject {
       const cam = this._scene && this._scene.cameras && this._scene.cameras.main;
       if (cam) cam.shake(Math.max(50, trig.duration * 1000), Math.min(0.05, (trig.strength || 10) / 600));
       this._shakeTriggerIdx++;
+    }
+  }
+
+  // Spawn (1268): when passed, schedule its target group's triggers to fire
+  // after a delay. A spawn that targets its own group = a loop.
+  checkSpawnTriggers(playerX) {
+    while (this._spawnTriggerIdx < this._spawnTriggers.length) {
+      const trig = this._spawnTriggers[this._spawnTriggerIdx];
+      if (trig.x > playerX) break;
+      this._scheduleSpawn(trig);
+      this._spawnTriggerIdx++;
+    }
+  }
+  _scheduleSpawn(trig) {
+    if (trig.targetGroup > 0) this._pendingSpawns.push({ group: trig.targetGroup, t: trig.delay || 0 });
+  }
+  stepSpawns(dt) {
+    let i = 0;
+    while (i < this._pendingSpawns.length) {
+      const ps = this._pendingSpawns[i];
+      ps.t -= dt;
+      if (ps.t <= 0) { this._fireGroup(ps.group); this._pendingSpawns.splice(i, 1); }
+      else i++;
+    }
+  }
+  _fireGroup(gid) {
+    const list = this._spawnGroups[gid];
+    if (!list) return;
+    for (const trig of list) this._activateTrigger(trig);
+  }
+  _activateTrigger(trig) {
+    switch (trig.kind) {
+      case "move":
+        if (!this._groupOffsets[trig.targetGroup]) this._groupOffsets[trig.targetGroup] = { x: 0, y: 0 };
+        this._activeMoveTweens.push({ trig, elapsed: 0, prevProgress: 0, dir: 1 });
+        break;
+      case "rotate": {
+        const totalDeg = trig.degrees + (trig.times360 * 360);
+        this._activeRotateTweens.push({ trig, elapsed: 0, prevProgress: 0, totalRad: totalDeg * Math.PI / 180 });
+        break;
+      }
+      case "toggle": {
+        const sprites = this._groupSprites[trig.targetGroup];
+        if (sprites) for (const spr of sprites) { if (spr) spr.visible = trig.activate; }
+        const cols = this._groupColliders[trig.targetGroup];
+        if (cols) for (const col of cols) { if (col) col._toggledOff = !trig.activate; }
+        break;
+      }
+      case "shake": {
+        const cam = this._scene && this._scene.cameras && this._scene.cameras.main;
+        if (cam) cam.shake(Math.max(50, trig.duration * 1000), Math.min(0.05, (trig.strength || 10) / 600));
+        break;
+      }
+      case "spawn":
+        this._scheduleSpawn(trig);
+        break;
+    }
+  }
+
+  // Scale (2067): tween a group's sprites toward a scale multiplier.
+  checkScaleTriggers(playerX) {
+    while (this._scaleTriggerIdx < this._scaleTriggers.length) {
+      const trig = this._scaleTriggers[this._scaleTriggerIdx];
+      if (trig.x > playerX) break;
+      this._activeScaleTweens.push({ trig, elapsed: 0, startScale: this._groupScale[trig.targetGroup] ?? 1 });
+      this._scaleTriggerIdx++;
+    }
+  }
+  stepScaleTriggers(dt) {
+    let i = 0;
+    while (i < this._activeScaleTweens.length) {
+      const anim = this._activeScaleTweens[i];
+      const { trig } = anim;
+      const dur = trig.duration > 0 ? trig.duration : 0;
+      anim.elapsed += dt;
+      const progress = dur > 0 ? Math.min(anim.elapsed / dur, 1) : 1;
+      const factor = anim.startScale + (trig.scale - anim.startScale) * progress;
+      this._groupScale[trig.targetGroup] = factor;
+      const sprites = this._groupSprites[trig.targetGroup];
+      if (sprites) for (const spr of sprites) {
+        if (!spr || !spr.active) continue;
+        if (spr._scaleBaseX === undefined) { spr._scaleBaseX = spr.scaleX; spr._scaleBaseY = spr.scaleY; }
+        spr.scaleX = spr._scaleBaseX * factor;
+        spr.scaleY = spr._scaleBaseY * factor;
+      }
+      if (progress >= 1) this._activeScaleTweens.splice(i, 1); else i++;
+    }
+  }
+
+  // Zoom (1913): tween the camera zoom for a cinematic effect.
+  checkZoomTriggers(playerX) {
+    while (this._zoomTriggerIdx < this._zoomTriggers.length) {
+      const trig = this._zoomTriggers[this._zoomTriggerIdx];
+      if (trig.x > playerX) break;
+      const cam = this._scene && this._scene.cameras && this._scene.cameras.main;
+      this._activeZoomTweens.push({ trig, elapsed: 0, startZoom: cam ? cam.zoom : 1 });
+      this._zoomTriggerIdx++;
+    }
+  }
+  stepZoomTriggers(dt) {
+    let i = 0;
+    while (i < this._activeZoomTweens.length) {
+      const anim = this._activeZoomTweens[i];
+      const { trig } = anim;
+      const dur = trig.duration > 0 ? trig.duration : 0;
+      anim.elapsed += dt;
+      const progress = dur > 0 ? Math.min(anim.elapsed / dur, 1) : 1;
+      const cam = this._scene && this._scene.cameras && this._scene.cameras.main;
+      if (cam) cam.setZoom(anim.startZoom + (trig.zoom - anim.startZoom) * progress);
+      if (progress >= 1) this._activeZoomTweens.splice(i, 1); else i++;
     }
   }
 

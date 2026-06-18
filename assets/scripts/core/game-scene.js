@@ -6145,6 +6145,12 @@ _buildSettingsPopup() {
     this._level.stepPulseTriggers(deltaTime / 1000, this._colorManager);
     this._level.checkToggleTriggers(playerX);
     this._level.checkShakeTriggers(playerX);
+    this._level.checkSpawnTriggers(playerX);
+    this._level.stepSpawns(deltaTime / 1000);
+    this._level.checkScaleTriggers(playerX);
+    this._level.stepScaleTriggers(deltaTime / 1000);
+    this._level.checkZoomTriggers(playerX);
+    this._level.stepZoomTriggers(deltaTime / 1000);
     this._colorManager.step(deltaTime / 1000);
     this._level.applyColorChannels(this._colorManager);
     this._bg.setTint(this._colorManager.getHex(fs));
