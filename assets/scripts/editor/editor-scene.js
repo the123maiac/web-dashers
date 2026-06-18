@@ -18,6 +18,19 @@ const ED_CELL_PX = ED_CELL_UNITS * ED_PX; // 60 px / cell @ zoom 1
 const ED_PANEL_H = 118;
 const ED_TOPBAR_H = 52;
 
+// 2.2 animation triggers exposed in the editor. Defaults target group 1, so the
+// flow is: select object(s) -> G (set group 1) -> drop a trigger -> Playtest.
+// (T re-configures a selected trigger.) The play engine applies these by group.
+const ED_TRIGGERS = {
+  899:  { name: "Color",  color: 0x4cd07a, defs: { 23: 1, 7: 255, 8: 90, 9: 60, 10: 0.5 } },
+  901:  { name: "Move",   color: 0x8e5bff, defs: { 51: 1, 28: 90, 29: 0, 10: 0.5, 30: 0, 85: 2 } },
+  1006: { name: "Pulse",  color: 0xff5bd0, defs: { 51: 1, 52: 1, 7: 120, 8: 255, 9: 255, 45: 0.2, 46: 0.4, 47: 0.4 } },
+  1007: { name: "Alpha",  color: 0x2bd6c6, defs: { 51: 1, 10: 0.5, 35: 0 } },
+  1346: { name: "Rotate", color: 0xff9b3d, defs: { 51: 1, 68: 180, 10: 0.6, 30: 0, 85: 2 } },
+  1049: { name: "Toggle", color: 0xe8c33a, defs: { 51: 1, 56: 0 } },
+  1520: { name: "Shake",  color: 0xff6b4a, defs: { 75: 15, 10: 0.5 } },
+};
+
 class EditorScene extends Phaser.Scene {
   constructor() { super({ key: "EditorScene" }); }
 
@@ -134,6 +147,11 @@ class EditorScene extends Phaser.Scene {
     const frame = def && def.frame;
     const wx = this.unitsToWorldX(obj.x), wy = this.unitsToWorldY(obj.y);
     let spr = frame ? addImageToScene(this, wx, wy, frame) : null;
+    if (!spr && (ED_TRIGGERS[obj.id] || (def && def.type === "trigger"))) {
+      const m = this._makeTriggerMarker(wx, wy, obj);
+      this.objectLayer.add(m); obj._sprites.push(m); m._edObj = obj;
+      return;
+    }
     if (!spr) spr = this._makeFallback(wx, wy, def);
     if (!spr) { obj._noVisual = true; return; }
     this._applyObjVisual(spr, frame, obj, def);
@@ -200,6 +218,21 @@ class EditorScene extends Phaser.Scene {
     return spr;
   }
 
+  // Triggers have no sprite frame, so show them as a labelled marker you can
+  // select/move/configure like any object.
+  _makeTriggerMarker(wx, wy, obj) {
+    const t = ED_TRIGGERS[obj.id] || { name: "T", color: 0x999999 };
+    const c = this.add.container(wx, wy);
+    const g = this.add.graphics();
+    g.fillStyle(t.color, 0.92).fillRoundedRect(-15, -15, 30, 30, 5);
+    g.lineStyle(2, 0xffffff, 0.75).strokeRoundedRect(-15, -15, 30, 30, 5);
+    const lbl = this.add.bitmapText(0, 1, "bigFont", t.name[0] + (obj._raw && obj._raw[51] ? obj._raw[51] : (obj._raw && obj._raw[23] ? obj._raw[23] : "")), 16).setOrigin(0.5);
+    c.add([g, lbl]);
+    c.setDepth(60);
+    c._wdTrigger = true;
+    return c;
+  }
+
   /* --- grid -------------------------------------------------------------- */
   _drawGrid() {
     const g = this._gridGfx, cam = this.cameras.main, z = cam.zoom;
@@ -263,6 +296,13 @@ class EditorScene extends Phaser.Scene {
     this._undoBtn = this._uiButton(screenWidth - 286, by, 84, "Undo", () => this._undo());
     this._redoBtn = this._uiButton(screenWidth - 196, by, 84, "Redo", () => this._redo());
     this._delSelBtn = this._uiButton(screenWidth - 102, by, 92, "Del Sel", () => this._deleteSelection());
+    this._uiButton(296, by, 84, "Anim", () => {
+      const k = window.prompt("Add an animated gadget:\n  1 = Spinner    2 = Slider    3 = Riser    4 = Pulser\n  5 = Fader    6 = Oscillator (loops)    7 = Vanisher", "1");
+      if (k === null) return;
+      this._addPreset(({ 1: "spinner", 2: "slider", 3: "riser", 4: "pulser", 5: "fader", 6: "oscillator", 7: "vanisher" })[parseInt(k, 10)] || "spinner");
+    }, { color: 0x6f42c1 });
+    this._uiButton(388, by, 84, "Group", () => this._setGroupOnSelection(), { color: 0x2c7be5 });
+    this._uiButton(480, by, 84, "Cfg FX", () => this._configSelectedTrigger(), { color: 0x2c7be5 });
     this._refreshCounter();
   }
 
@@ -283,7 +323,7 @@ class EditorScene extends Phaser.Scene {
   /* --- palette ----------------------------------------------------------- */
   _buildPaletteData() {
     const ao = this._ao;
-    const cats = { Block: [], Spike: [], Slope: [], Portal: [], Orbs: [], Deco: [], "2.2": [] };
+    const cats = { Block: [], Spike: [], Slope: [], Portal: [], Orbs: [], Deco: [], "2.2": [], FX: [] };
     for (const idStr of Object.keys(ao)) {
       const id = +idStr, d = ao[idStr];
       if (!d || !d.frame) continue;
@@ -300,6 +340,7 @@ class EditorScene extends Phaser.Scene {
     // Common, hand-picked first entries so the palette opens on useful objects.
     const favs = { Block: [1, 2, 3, 4, 5, 6, 7], Spike: [8, 39, 103, 392], Portal: [12, 13, 47, 111, 660, 745, 10, 11, 45, 99, 101], Orbs: [36, 141, 84, 1022, 35, 67] };
     for (const k of Object.keys(favs)) { const set = new Set(cats[k]); cats[k] = [...favs[k].filter((i) => set.has(i)), ...cats[k].filter((i) => !favs[k].includes(i))]; }
+    cats.FX = Object.keys(ED_TRIGGERS).map(Number).filter((id) => this._ao[id]); // animation triggers
     this.paletteCats = cats;
     this.paletteCategory = "Block";
   }
@@ -366,13 +407,15 @@ class EditorScene extends Phaser.Scene {
       const back = this.add.graphics();
       back.fillStyle(0x1b2430, 1).fillRoundedRect(x, this._stripTop + 3, cell, this._stripH - 6, 6);
       back.lineStyle(2, 0xffffff, 0.12).strokeRoundedRect(x, this._stripTop + 3, cell, this._stripH - 6, 6);
-      const thumb = addImageToScene(this, cx, cy, def.frame);
+      const thumb = def.frame ? addImageToScene(this, cx, cy, def.frame) : null;
       if (thumb) {
         const maxDim = Math.max(thumb.width, thumb.height) || 60;
         const sc = Math.min(1, (cell - 16) / maxDim);
         thumb.setScale(sc);
-        const tint = this._channelTint(def.default_base_color_channel || (def.type === "solid" ? 1004 : 0));
         if (def.type === "solid") thumb.setTint(0xdddddd);
+      } else if (ED_TRIGGERS[id]) {
+        const nm = this.add.bitmapText(cx, cy - 2, "bigFont", ED_TRIGGERS[id].name, 13).setOrigin(0.5).setTint(ED_TRIGGERS[id].color);
+        this._stripContainer.add(nm);
       }
       const label = this.add.bitmapText(cx, this._stripTop + this._stripH - 8, "goldFont", String(id), 12).setOrigin(0.5);
       const zone = this.add.zone(x, this._stripTop + 3, cell, this._stripH - 6).setOrigin(0).setInteractive({ useHandCursor: true });
@@ -487,6 +530,8 @@ class EditorScene extends Phaser.Scene {
     kb.on("keydown-Z", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); e.shiftKey ? this._redo() : this._undo(); } });
     kb.on("keydown-Y", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); this._redo(); } });
     kb.on("keydown-S", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); this._save(true); } });
+    kb.on("keydown-G", () => this._setGroupOnSelection());
+    kb.on("keydown-T", () => this._configSelectedTrigger());
     this._cursors = kb.createCursorKeys();
   }
 
@@ -516,6 +561,7 @@ class EditorScene extends Phaser.Scene {
     if (this.objects.some((o) => o.id === this.currentPlaceId && o.x === ux && o.y === uy)) { this._paintCells.add(key); return; }
     this._paintCells.add(key);
     const obj = { id: this.currentPlaceId, x: ux, y: uy, flipX: false, flipY: false, rot: 0, scale: 1, zLayer: 0, zOrder: 0, color1: 0, color2: 0, groups: "", _raw: { 1: this.currentPlaceId, 2: ux, 3: uy } };
+    if (ED_TRIGGERS[this.currentPlaceId]) Object.assign(obj._raw, ED_TRIGGERS[this.currentPlaceId].defs);
     this.objects.push(obj); this._renderObject(obj); this._strokeAdds.push(obj);
     this._refreshCounter();
   }
@@ -591,6 +637,65 @@ class EditorScene extends Phaser.Scene {
     this._refreshCounter();
   }
   _rotateSelection(deg) { if (!this.selection.size) return; for (const o of this.selection) { o.rot = ((o.rot || 0) + deg) % 360; this._renderObject(o); } this._commit({ type: "transform" }, true); }
+  _setGroupOnSelection() {
+    if (!this.selection.size) { this._toast("Edit mode: select objects, then Group"); return; }
+    const v = window.prompt("Group ID for " + this.selection.size + " selected object(s)  (blank = clear):", "1");
+    if (v === null) return;
+    const gid = parseInt(v, 10);
+    for (const o of this.selection) {
+      if (!isNaN(gid) && gid > 0) { o.groups = String(gid); o._raw[57] = String(gid); }
+      else { o.groups = ""; delete o._raw[57]; }
+    }
+    this._toast((isNaN(gid) || gid <= 0) ? "Cleared groups" : "Group " + gid + " set on " + this.selection.size);
+  }
+  _configSelectedTrigger() {
+    const trigs = [...this.selection].filter((o) => ED_TRIGGERS[o.id]);
+    if (trigs.length !== 1) { this._toast("Edit mode: select one trigger to configure"); return; }
+    const o = trigs[0], t = ED_TRIGGERS[o.id], r = o._raw;
+    let s, p;
+    if (o.id === 901) { s = window.prompt("Move - group, X (30=1 block), Y, seconds, loop 0/1:", [r[51] || 1, r[28] || 90, r[29] || 0, r[10] || 0.5, r[97] === "1" ? 1 : 0].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[28] = parseFloat(p[1]) || 0; r[29] = parseFloat(p[2]) || 0; r[10] = parseFloat(p[3]) || 0.5; if (parseInt(p[4])) r[97] = "1"; else delete r[97]; }
+    else if (o.id === 1346) { s = window.prompt("Rotate - group, degrees, seconds, loop 0/1:", [r[51] || 1, r[68] || 180, r[10] || 0.6, r[97] === "1" ? 1 : 0].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[68] = parseFloat(p[1]) || 0; r[10] = parseFloat(p[2]) || 0.6; if (parseInt(p[3])) r[97] = "1"; else delete r[97]; }
+    else if (o.id === 1007) { s = window.prompt("Alpha - group, opacity 0-1, seconds:", [r[51] || 1, r[35] != null ? r[35] : 0, r[10] || 0.5].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[35] = parseFloat(p[1]) || 0; r[10] = parseFloat(p[2]) || 0.5; }
+    else if (o.id === 1006) { s = window.prompt("Pulse - group, R, G, B:", [r[51] || 1, r[7] || 120, r[8] || 255, r[9] || 255].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[7] = parseInt(p[1]) || 0; r[8] = parseInt(p[2]) || 0; r[9] = parseInt(p[3]) || 0; }
+    else if (o.id === 899) { s = window.prompt("Color - channel, R, G, B:", [r[23] || 1, r[7] || 255, r[8] || 90, r[9] || 60].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[23] = parseInt(p[0]) || 1; r[7] = parseInt(p[1]) || 0; r[8] = parseInt(p[2]) || 0; r[9] = parseInt(p[3]) || 0; }
+    else if (o.id === 1049) { s = window.prompt("Toggle - group, show 1 / hide 0:", [r[51] || 1, (r[56] === "1" || r[56] === 1) ? 1 : 0].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[51] = parseInt(p[0]) || 1; r[56] = parseInt(p[1]) ? "1" : "0"; }
+    else if (o.id === 1520) { s = window.prompt("Shake - strength, seconds:", [r[75] || 15, r[10] || 0.5].join(",")); if (s === null) return; p = s.split(",").map((x) => x.trim()); r[75] = parseFloat(p[0]) || 10; r[10] = parseFloat(p[1]) || 0.5; }
+    this._renderObject(o);
+    this._toast(t.name + " trigger updated");
+  }
+  // Lowest unused group id (>=2) so each preset animates its own objects.
+  _nextAnimGroup() {
+    let max = 0;
+    for (const o of this.objects) {
+      const gs = String((o._raw && o._raw[57]) || o.groups || "").split(".").map(Number);
+      for (const gg of gs) if (gg > max) max = gg;
+    }
+    return Math.max(2, max + 1);
+  }
+  // Drop a ready-made animated gadget at the view centre: a grouped object (or
+  // row) plus a trigger already wired to it. Playtest and it animates.
+  _addPreset(kind) {
+    const cam = this.cameras.main;
+    const bx = this.snapUnits(this.worldToUnitsX(cam.scrollX + screenWidth / (2 * cam.zoom)));
+    const by = this.snapUnits(this.worldToUnitsY(cam.scrollY + screenHeight / (2 * cam.zoom)));
+    const G = this._nextAnimGroup();
+    const made = [];
+    const add = (id, dx, dy, raw) => {
+      const o = { id, x: bx + dx, y: by + dy, flipX: false, flipY: false, rot: 0, scale: 1, zLayer: 0, zOrder: 0, color1: 0, color2: 0, groups: raw && raw[57] != null ? String(raw[57]) : "", _raw: Object.assign({ 1: id, 2: bx + dx, 3: by + dy }, raw || {}) };
+      this.objects.push(o); this._renderObject(o); made.push(o); return o;
+    };
+    if (kind === "slider") { for (let i = 0; i < 3; i++) add(1, i * 30, 0, { 57: G }); add(901, -90, 0, { 51: G, 28: 180, 29: 0, 10: 1, 30: 0, 85: 2 }); }
+    else if (kind === "riser") { for (let i = 0; i < 3; i++) add(1, i * 30, 0, { 57: G }); add(901, -90, 0, { 51: G, 28: 0, 29: 150, 10: 1, 30: 0, 85: 2 }); }
+    else if (kind === "spinner") { add(1, 0, 0, { 57: G }); add(1346, -90, 0, { 51: G, 68: 360, 69: 0, 10: 2, 30: 0, 85: 2, 71: G, 97: 1 }); }
+    else if (kind === "pulser") { add(1, 0, 0, { 57: G }); add(1006, -90, 0, { 51: G, 52: 1, 7: 255, 8: 90, 9: 220, 45: 0.3, 46: 0.5, 47: 0.5 }); }
+    else if (kind === "fader") { add(1, 0, 0, { 57: G }); add(1007, -90, 0, { 51: G, 10: 1, 35: 0.15 }); }
+    else if (kind === "oscillator") { for (let i = 0; i < 3; i++) add(1, i * 30, 0, { 57: G }); add(901, -90, 0, { 51: G, 28: 120, 29: 0, 10: 1.2, 30: 0, 85: 2, 97: 1 }); }
+    else if (kind === "vanisher") { for (let i = 0; i < 3; i++) add(1, i * 30, 0, { 57: G }); add(1049, -90, 0, { 51: G, 56: 0 }); }
+    if (!made.length) return;
+    this._commit({ type: "add", objs: made });
+    this._refreshCounter();
+    this._toast(kind + " added (group " + G + ") - Playtest to see it animate");
+  }
   _flipSelection(axis) { if (!this.selection.size) return; for (const o of this.selection) { if (axis === "x") o.flipX = !o.flipX; else o.flipY = !o.flipY; this._renderObject(o); } this._commit({ type: "transform" }, true); }
   _copySelection() {
     if (!this.selection.size) return;

@@ -314,6 +314,10 @@ window.LevelObject = class LevelObject {
     this._pulseTriggers = [];
     this._pulseTriggerIdx = 0;
     this._activePulses = [];
+    this._toggleTriggers = [];
+    this._toggleTriggerIdx = 0;
+    this._shakeTriggers = [];
+    this._shakeTriggerIdx = 0;
     this._colorChannelSprites = {};
     this._groupSprites = {};
     this._groupOffsets = {};
@@ -894,7 +898,8 @@ window.LevelObject = class LevelObject {
         offsetX: parseFloat(_raw[28] ?? 0) * 2,
         offsetY: parseFloat(_raw[29] ?? 0) * 2,
         lockX: _raw[58] === "1",
-        lockY: _raw[59] === "1"
+        lockY: _raw[59] === "1",
+        loop: _raw[97] === "1"
       });
     }
 
@@ -938,7 +943,8 @@ window.LevelObject = class LevelObject {
         easingRate: parseFloat(_raw[85] ?? 2),
         lockRotation: _raw[70] === "1",
         times360: parseInt(_raw[69] ?? 0, 10),
-        centerGroup: parseInt(_raw[71] ?? 0, 10)
+        centerGroup: parseInt(_raw[71] ?? 0, 10),
+        loop: _raw[97] === "1"
       });
     }
 
@@ -958,6 +964,24 @@ window.LevelObject = class LevelObject {
         fadeIn: parseFloat(_raw[45] ?? 0),
         hold: parseFloat(_raw[46] ?? 0),
         fadeOut: parseFloat(_raw[47] ?? 0)
+      });
+    }
+
+    if (levelObj.id === 1049) {
+      const _raw = levelObj._raw;
+      this._toggleTriggers.push({
+        x: levelObj.x * 2,
+        targetGroup: parseInt(_raw[51] ?? 0, 10),
+        activate: _raw[56] === "1" || _raw[56] === 1
+      });
+    }
+
+    if (levelObj.id === 1520) {
+      const _raw = levelObj._raw;
+      this._shakeTriggers.push({
+        x: levelObj.x * 2,
+        strength: parseFloat(_raw[75] ?? 10),
+        duration: parseFloat(_raw[10] ?? 0.5)
       });
     }
 
@@ -1508,6 +1532,8 @@ window.LevelObject = class LevelObject {
     this._alphaTriggers.sort((a, b) => a.x - b.x);
     this._rotateTriggers.sort((a, b) => a.x - b.x);
     this._pulseTriggers.sort((a, b) => a.x - b.x);
+    this._toggleTriggers.sort((a, b) => a.x - b.x);
+    this._shakeTriggers.sort((a, b) => a.x - b.x);
 
     for (let si = 0; si < this._sectionContainers.length; si++) {
       const sc = this._sectionContainers[si];
@@ -1789,6 +1815,7 @@ window.LevelObject = class LevelObject {
         trig,
         elapsed: 0,
         prevProgress: 0,
+        dir: 1,
       });
       if (!this._groupOffsets[trig.targetGroup]) {
         this._groupOffsets[trig.targetGroup] = { x: 0, y: 0 };
@@ -1814,8 +1841,9 @@ window.LevelObject = class LevelObject {
 
       anim.prevProgress = progress;
 
-      const deltaX = trig.offsetX * amount;
-      const deltaY = -(trig.offsetY * amount);
+      const dir = anim.dir || 1;
+      const deltaX = trig.offsetX * amount * dir;
+      const deltaY = -(trig.offsetY * amount) * dir;
 
       const sprites = this._groupSprites[trig.targetGroup];
       const colliders = this._groupColliders[trig.targetGroup];
@@ -1849,7 +1877,8 @@ window.LevelObject = class LevelObject {
       }
 
       if (progress >= 1) {
-        this._activeMoveTweens.splice(i, 1);
+        if (trig.loop) { anim.elapsed = 0; anim.prevProgress = 0; anim.dir = -dir; i++; }
+        else this._activeMoveTweens.splice(i, 1);
       } else {
         i++;
       }
@@ -1860,6 +1889,8 @@ window.LevelObject = class LevelObject {
     this._moveTriggerIdx = 0;
     this._activeMoveTweens = [];
     this._groupOffsets = {};
+    this._toggleTriggerIdx = 0;
+    this._shakeTriggerIdx = 0;
     for (const gid in this._groupSprites) {
       for (const spr of this._groupSprites[gid]) {
         if (!spr || !spr.active) continue;
@@ -1867,6 +1898,7 @@ window.LevelObject = class LevelObject {
         spr.y = spr._origBaseY;
         spr._eeWorldX = spr._origWorldX;
         spr._eeBaseY = spr._origBaseY;
+        spr.visible = true;
       }
     }
     for (const gid in this._groupColliders) {
@@ -2009,12 +2041,34 @@ window.LevelObject = class LevelObject {
           }
         }
       }
-      if (progress >= 1) { this._activeRotateTweens.splice(i, 1); } else { i++; }
+      if (progress >= 1) { if (trig.loop) { anim.elapsed = 0; anim.prevProgress = 0; i++; } else this._activeRotateTweens.splice(i, 1); } else { i++; }
     }
   }
   resetRotateTriggers() {
     this._rotateTriggerIdx = 0;
     this._activeRotateTweens = [];
+  }
+
+  // Toggle (1049): show/hide a group as the player passes.
+  checkToggleTriggers(playerX) {
+    while (this._toggleTriggerIdx < this._toggleTriggers.length) {
+      const trig = this._toggleTriggers[this._toggleTriggerIdx];
+      if (trig.x > playerX) break;
+      const sprites = this._groupSprites[trig.targetGroup];
+      if (sprites) for (const spr of sprites) { if (spr) spr.visible = trig.activate; }
+      this._toggleTriggerIdx++;
+    }
+  }
+
+  // Shake (1520): jolt the camera as the player passes.
+  checkShakeTriggers(playerX) {
+    while (this._shakeTriggerIdx < this._shakeTriggers.length) {
+      const trig = this._shakeTriggers[this._shakeTriggerIdx];
+      if (trig.x > playerX) break;
+      const cam = this._scene && this._scene.cameras && this._scene.cameras.main;
+      if (cam) cam.shake(Math.max(50, trig.duration * 1000), Math.min(0.05, (trig.strength || 10) / 600));
+      this._shakeTriggerIdx++;
+    }
   }
 
   checkPulseTriggers(playerX) {

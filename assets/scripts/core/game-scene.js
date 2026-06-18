@@ -6143,6 +6143,8 @@ _buildSettingsPopup() {
     this._level.stepRotateTriggers(deltaTime / 1000);
     this._level.checkPulseTriggers(playerX);
     this._level.stepPulseTriggers(deltaTime / 1000, this._colorManager);
+    this._level.checkToggleTriggers(playerX);
+    this._level.checkShakeTriggers(playerX);
     this._colorManager.step(deltaTime / 1000);
     this._level.applyColorChannels(this._colorManager);
     this._bg.setTint(this._colorManager.getHex(fs));
